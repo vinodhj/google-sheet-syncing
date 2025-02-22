@@ -29,8 +29,8 @@ export interface YogaInitialContext {
   };
 }
 
-export default {
-  async fetch(request, env, ctx): Promise<Response> {
+const handler = {
+  async fetch(this: ExportedHandler<Env>, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const db = drizzle(env.DB);
     const datasources = {
@@ -38,94 +38,112 @@ export default {
     };
 
     if (url.pathname === '/sync-categories-and-services' && request.method === 'GET') {
-      // Sync Categories and Services
-      const token = request.headers.get('Authorization');
-      if (!token || token !== env.SYNC_TOKEN) {
-        return new Response('Unauthorized', { status: 401 });
-      }
-      try {
-        return syncCategoriesAndServices({ request, datasources, SHEET_ID: env.SHEET_ID, SHEET_API_KEY: env.SHEET_API_KEY });
-      } catch (error) {
-        return new Response(`Failed to sync : ${error}`, { status: 500 });
-      }
+      return handler.handleSyncCategoriesAndServices(request, env, datasources);
     }
 
     if (url.pathname === '/manual-d1-google-sync' && request.method === 'POST') {
-      const token = request.headers.get('Authorization');
-      if (!token || token !== env.SYNC_TOKEN) {
-        return new Response('Unauthorized', { status: 401 });
-      }
-
-      const header_sync_type = request.headers.get('sync-type');
-      if (!header_sync_type) {
-        return new Response('Missing sync type', { status: 400 });
-      }
-      let sync_type: SyncType;
-
-      if (header_sync_type.toUpperCase() === 'ONE_TIME_SYNC') {
-        sync_type = SyncType.ONE_TIME_SYNC;
-      } else if (header_sync_type.toUpperCase() === 'UPDATE') {
-        sync_type = SyncType.UPDATE;
-      } else {
-        return new Response('Invalid sync type', { status: 400 });
-      }
-
-      const kv_value = await env.GKEY_KV_NAMESPACE.get('GOOGLE_PRIVATE_KEY');
-      if (!kv_value) {
-        return new Response('Missing kv credentials', { status: 400 });
-      }
-
-      const private_key = JSON.parse(kv_value);
-
-      const auth = await fetchAccessToken({
-        GOOGLE_PRIVATE_KEY: private_key,
-        GOOGLE_CLIENT_EMAIL: env.GOOGLE_CLIENT_EMAIL,
-        GOOGLE_TOKEN_URI: env.GOOGLE_TOKEN_URI,
-      });
-
-      try {
-        return manualD1GoogleSync({ request, datasources, SHEET_ID: env.SHEET_ID, SHEET_API_KEY: env.SHEET_API_KEY, auth, sync_type });
-      } catch (error) {
-        return new Response(`Failed to sync : ${error}`, { status: 500 });
-      }
+      return handler.handleManualD1GoogleSync(request, env, datasources);
     }
 
     if (url.pathname === '/kv-config' && request.method === 'POST') {
-      const token = request.headers.get('Authorization');
-      if (!token || token !== env.SYNC_TOKEN) {
-        return new Response('Unauthorized', { status: 401 });
-      }
-
-      try {
-        const data = await request.json();
-        if (!data) {
-          return new Response('Missing data', { status: 400 });
-        }
-        const private_key = JSON.stringify(data.gkey);
-        await env.GKEY_KV_NAMESPACE.put('GOOGLE_PRIVATE_KEY', private_key);
-        const value = await env.GKEY_KV_NAMESPACE.get('GOOGLE_PRIVATE_KEY');
-        if (value === null) {
-          return new Response('Value not found', { status: 404 });
-        }
-        return new Response('KV config updated', { status: 200 });
-      } catch (error) {
-        return new Response(`Failed to sync : ${error}`, { status: 500 });
-      }
+      return handler.handleKVConfig(request, env);
     }
 
     if (url.pathname === '/graphql') {
-      const yoga = createYoga({
-        schema: schema as YogaSchemaDefinition<object, YogaInitialContext>,
-        landingPage: false,
-        graphqlEndpoint: '/graphql',
-        context: () => ({
-          datasources: {
-            googleSheetDataSource: new GoogleSheetDataSource({ db }),
-          },
-        }),
-      });
-      return yoga.fetch(request);
+      return handler.handleGraphQL(request, db);
     }
+
     return new Response('Not found', { status: 404 });
   },
-} satisfies ExportedHandler<Env>;
+
+  async handleSyncCategoriesAndServices(request: Request, env: Env, datasources: { googleSheetDataSource: GoogleSheetDataSource }): Promise<Response> {
+    const token = request.headers.get('Authorization');
+    if (!token || token !== env.SYNC_TOKEN) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    try {
+      return await syncCategoriesAndServices({ request, datasources, SHEET_ID: env.SHEET_ID, SHEET_API_KEY: env.SHEET_API_KEY });
+    } catch (error) {
+      return new Response(`Failed to sync : ${error}`, { status: 500 });
+    }
+  },
+
+  async handleManualD1GoogleSync(request: Request, env: Env, datasources: { googleSheetDataSource: GoogleSheetDataSource }): Promise<Response> {
+    const token = request.headers.get('Authorization');
+    if (!token || token !== env.SYNC_TOKEN) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const header_sync_type = request.headers.get('sync-type');
+    if (!header_sync_type) {
+      return new Response('Missing sync type', { status: 400 });
+    }
+    let sync_type: SyncType;
+
+    if (header_sync_type.toUpperCase() === 'ONE_TIME_SYNC') {
+      sync_type = SyncType.ONE_TIME_SYNC;
+    } else if (header_sync_type.toUpperCase() === 'UPDATE') {
+      sync_type = SyncType.UPDATE;
+    } else {
+      return new Response('Invalid sync type', { status: 400 });
+    }
+
+    const kv_value = await env.GKEY_KV_NAMESPACE.get('GOOGLE_PRIVATE_KEY');
+    if (!kv_value) {
+      return new Response('Missing kv credentials', { status: 400 });
+    }
+
+    const private_key = JSON.parse(kv_value);
+
+    const auth = await fetchAccessToken({
+      GOOGLE_PRIVATE_KEY: private_key,
+      GOOGLE_CLIENT_EMAIL: env.GOOGLE_CLIENT_EMAIL,
+      GOOGLE_TOKEN_URI: env.GOOGLE_TOKEN_URI,
+    });
+
+    try {
+      return await manualD1GoogleSync({ request, datasources, SHEET_ID: env.SHEET_ID, SHEET_API_KEY: env.SHEET_API_KEY, auth, sync_type });
+    } catch (error) {
+      return new Response(`Failed to sync : ${error}`, { status: 500 });
+    }
+  },
+
+  async handleKVConfig(request: Request, env: Env): Promise<Response> {
+    const token = request.headers.get('Authorization');
+    if (!token || token !== env.SYNC_TOKEN) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    try {
+      const data: { gkey: string } = await request.json();
+      if (!data) {
+        return new Response('Missing data', { status: 400 });
+      }
+      const private_key = JSON.stringify(data.gkey);
+      await env.GKEY_KV_NAMESPACE.put('GOOGLE_PRIVATE_KEY', private_key);
+      const value = await env.GKEY_KV_NAMESPACE.get('GOOGLE_PRIVATE_KEY');
+      if (value === null) {
+        return new Response('Value not found', { status: 404 });
+      }
+      return new Response('KV config updated', { status: 200 });
+    } catch (error) {
+      return new Response(`Failed to sync : ${error}`, { status: 500 });
+    }
+  },
+
+  async handleGraphQL(request: Request, db: any): Promise<Response> {
+    const yoga = createYoga({
+      schema: schema as YogaSchemaDefinition<object, YogaInitialContext>,
+      landingPage: false,
+      graphqlEndpoint: '/graphql',
+      context: () => ({
+        datasources: {
+          googleSheetDataSource: new GoogleSheetDataSource({ db }),
+        },
+      }),
+    });
+    return await yoga.fetch(request);
+  },
+};
+
+export default handler satisfies ExportedHandler<Env>;

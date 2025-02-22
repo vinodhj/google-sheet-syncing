@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention */
-
 import { category, service } from 'db/schema';
 import { SQL, getTableColumns, sql, eq } from 'drizzle-orm';
 import { DrizzleD1Database } from 'drizzle-orm/d1';
@@ -7,23 +5,23 @@ import { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import _ from 'lodash';
 
 export type servicesAndCategories = {
-  description: String | null;
-  disabled: Boolean;
+  description: string | null;
+  disabled: boolean;
   created_at: Date;
   updated_at: Date;
-  id: String;
-  name: String | null;
-  category_name: String | null;
+  id: string;
+  name: string | null;
+  category_name: string | null;
 };
 
 export class GoogleSheetDataSource {
-  private db: DrizzleD1Database;
+  private readonly db: DrizzleD1Database;
   constructor({ db }: { db: DrizzleD1Database }) {
     this.db = db;
   }
 
   // Insert data into the category db
-  async postCategories(rows: (String | Number |  Boolean | Date | null)[][]) {
+  async postCategories(rows: (string | number | boolean | Date | null)[][]) {
     try {
       // Note: No of columns in the category table is 5. So, chunks of 100/5
       const result = await Promise.all(
@@ -54,7 +52,7 @@ export class GoogleSheetDataSource {
   }
 
   // Insert data into the service db
-  async postServices(rows: (String | Number |  Boolean | Date | null)[][]) {
+  async postServices(rows: (string | number | boolean | Date | null)[][]) {
     try {
       // Note: No of columns in the service table is 7. So, chunks of 100/7
       const result = await Promise.all(
